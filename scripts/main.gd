@@ -845,6 +845,25 @@ func _detect_specials(matches: Array) -> Dictionary:
 				run = 0
 				run_cells.clear()
 				run_color = -1
+	# 十字/T/L 形：同一格横 >=3 且 竖 >=3 → 彩虹
+	for pos in matches:
+		if out.has(pos):
+			continue
+		var c: int = board[pos.y][pos.x]
+		var row_len := 1
+		var col_len := 1
+		for dx in [-1, 1]:
+			var nx: int = pos.x + dx
+			while nx >= 0 and nx < grid and board[pos.y][nx] == c and marked.has(Vector2i(nx, pos.y)):
+				row_len += 1
+				nx += dx
+		for dy in [-1, 1]:
+			var ny: int = pos.y + dy
+			while ny >= 0 and ny < grid and board[ny][pos.x] == c and marked.has(Vector2i(pos.x, ny)):
+				col_len += 1
+				ny += dy
+		if row_len >= 3 and col_len >= 3:
+			out[pos] = RAINBOW
 	return out
 
 

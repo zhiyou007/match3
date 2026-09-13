@@ -91,6 +91,31 @@ func _run() -> void:
 		print("4b. FAIL: board has holes after rainbow")
 		quit(1)
 
+	# --- 5. L/T cross (row>=3 AND col>=3) -> RAINBOW ---
+	_reset_board()
+	m.board[3][3] = 4
+	m.board[4][3] = 4
+	m.board[5][3] = 4
+	m.board[4][2] = 4
+	m.board[4][4] = 4
+	# 防止连成直线 4/5：清掉十字周围同色
+	m.board[2][3] = 5
+	m.board[6][3] = 5
+	m.board[4][1] = 5
+	m.board[4][5] = 5
+	_sync_nodes()
+	await m._resolve_loop()
+	var cross_rainbow := false
+	for y in m.grid:
+		for x in m.grid:
+			if m.board[y][x] == m.RAINBOW:
+				cross_rainbow = true
+	if cross_rainbow:
+		print("5. cross/T-match spawns RAINBOW: PASS")
+	else:
+		print("5. FAIL: no rainbow from cross/T-match")
+		quit(1)
+
 	print("ALL SPECIAL TESTS PASSED")
 	quit(0)
 

@@ -25,6 +25,9 @@ var nodes: Array = []            # nodes[y][x] -> TextureRect（宝石方块）
 var _gem_textures: Array = []    # 宝石纹理（与 COLORS 索引对应）
 var selected := Vector2i(-1, -1)
 var busy := false
+# 交换操作队列：消除动画进行中不锁输入，新操作入队依次执行
+var _swap_chain_running := false
+var _pending_swaps: Array = []
 var game_over := false
 var paused := false
 var score := 0
@@ -63,11 +66,18 @@ func _ready() -> void:
 
 func _load_gem_textures() -> void:
 	_gem_textures.clear()
+	# 图集：assets/atlas_gems.png（4x2，每格 128x128），用 AtlasTexture 分块读取
+	var atlas_path := "res://assets/atlas_gems.png"
+	var atlas: Texture2D = null
+	if ResourceLoader.exists(atlas_path):
+		atlas = load(atlas_path)
 	for i in COLORS.size():
-		var path := "res://assets/gem_%d.png" % i
 		var tex: Texture2D = null
-		if ResourceLoader.exists(path):
-			tex = load(path)
+		if atlas != null:
+			var at := AtlasTexture.new()
+			at.atlas = atlas
+			at.region = Rect2((i % 4) * 128, (i / 4) * 128, 128, 128)
+			tex = at
 		if tex == null:
 			tex = _fallback_cell_texture(COLORS[i])
 		_gem_textures.append(tex)
@@ -346,6 +356,8 @@ func _start_game() -> void:
 	steps = max_steps
 	game_over = false
 	busy = false
+	_swap_chain_running = false
+	_pending_swaps.clear()
 	selected = Vector2i(-1, -1)
 	is_win = false
 	hints_left = 3
@@ -422,7 +434,7 @@ func _update_item_buttons() -> void:
 
 
 func _use_hint() -> void:
-	if busy or game_over or hints_left <= 0:
+	if busy or _swap_chain_running or game_over or hints_left <= 0:
 		return
 	hints_left -= 1
 	hint_btn.text = "提示 ×%d" % hints_left
@@ -464,7 +476,7 @@ func _pulse_pair(a: Vector2i, b: Vector2i) -> void:
 
 
 func _use_shuffle() -> void:
-	if busy or game_over or shuffles_left <= 0:
+	if busy or _swap_chain_running or game_over or shuffles_left <= 0:
 		return
 	shuffles_left -= 1
 	shuffle_btn.text = "重排 ×%d" % shuffles_left
@@ -473,7 +485,7 @@ func _use_shuffle() -> void:
 
 
 func _use_add_steps() -> void:
-	if busy or game_over or steps_add_left <= 0:
+	if busy or _swap_chain_running or game_over or steps_add_left <= 0:
 		return
 	steps_add_left -= 1
 	steps_btn.text = "+步 ×%d" % steps_add_left
@@ -534,7 +546,7 @@ func _drag_cell(gp: Vector2) -> void:
 			var c := press_cell
 			press_cell = Vector2i(-1, -1)
 			press_node = null
-			_try_swap(c, target)
+			_queue_swap(c, target)
 
 
 func _release_cell(gp: Vector2) -> void:
@@ -580,7 +592,7 @@ func _on_cell_clicked(cell_p: Vector2i) -> void:
 		var diff := a - cell_p
 		if abs(diff.x) + abs(diff.y) == 1:
 			_set_selected(Vector2i(-1, -1))
-			_try_swap(a, cell_p)
+			_queue_swap(a, cell_p)
 		else:
 			_set_selected(cell_p)
 			_sfx("click")
@@ -602,8 +614,27 @@ func _set_selected(cell_p: Vector2i) -> void:
 
 # ---------- 交换与消除 ----------
 
+func _queue_swap(a: Vector2i, b: Vector2i) -> void:
+	if game_over:
+		return
+	_pending_swaps.append([a, b])
+	if not _swap_chain_running:
+		_process_queue()
+
+
+func _process_queue() -> void:
+	_swap_chain_running = true
+	while not _pending_swaps.is_empty():
+		if game_over:
+			break
+		var pair: Array = _pending_swaps.pop_front()
+		await _try_swap(pair[0], pair[1])
+	_swap_chain_running = false
+
+
 func _try_swap(a: Vector2i, b: Vector2i) -> void:
-	busy = true
+	if game_over:
+		return
 	_swap_data(a, b)
 	var matches := _find_matches()
 	if not matches.is_empty():
@@ -630,7 +661,6 @@ func _try_swap(a: Vector2i, b: Vector2i) -> void:
 		t.tween_property(na, "position", _cell_pos(a), 0.1)
 		t.tween_property(nb, "position", _cell_pos(b), 0.1)
 		await t.finished
-	busy = false
 
 
 func _swap_data(a: Vector2i, b: Vector2i) -> void:
@@ -860,6 +890,8 @@ func _has_valid_move() -> bool:
 func _win_level() -> void:
 	game_over = true
 	busy = false
+	_swap_chain_running = false
+	_pending_swaps.clear()
 	is_win = true
 	selected = Vector2i(-1, -1)
 	var gs := get_node_or_null("/root/GameState")
@@ -892,6 +924,8 @@ func _win_level() -> void:
 func _lose_level() -> void:
 	game_over = true
 	busy = false
+	_swap_chain_running = false
+	_pending_swaps.clear()
 	is_win = false
 	selected = Vector2i(-1, -1)
 	overlay.visible = true

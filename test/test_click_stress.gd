@@ -37,7 +37,7 @@ func _run() -> void:
 		m._on_cell_clicked(b)
 		clicks += 1
 		var waited := 0
-		while m.busy:
+		while m._swap_chain_running or not m._pending_swaps.is_empty():
 			await process_frame
 			waited += 1
 			if waited > 600:

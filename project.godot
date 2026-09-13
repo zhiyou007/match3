@@ -1,0 +1,26 @@
+; Engine configuration file.
+config_version=5
+
+[application]
+
+config/name="消消乐"
+run/main_scene="res://scenes/menu.tscn"
+config/features=PackedStringArray("4.7")
+config/icon="res://icon.svg"
+
+[autoload]
+
+GameState="*res://scripts/game_state.gd"
+SFX="*res://scripts/sfx.gd"
+
+[display]
+
+window/size/viewport_width=720
+window/size/viewport_height=840
+window/stretch/mode="canvas_items"
+window/stretch/aspect="keep"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"

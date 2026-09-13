@@ -10,6 +10,10 @@ const COLORS: Array[Color] = [
 	Color("#f15bb5")
 ]
 
+# 特殊道具类型（图集 index 8=炸弹，9=彩虹）
+const BOMB := 8
+const RAINBOW := 9
+
 const VIEW_W := 720
 const VIEW_H := 840
 
@@ -71,15 +75,15 @@ func _load_gem_textures() -> void:
 	var atlas: Texture2D = null
 	if ResourceLoader.exists(atlas_path):
 		atlas = load(atlas_path)
-	for i in COLORS.size():
+	for i in COLORS.size() + 2:
 		var tex: Texture2D = null
 		if atlas != null:
 			var at := AtlasTexture.new()
 			at.atlas = atlas
-			at.region = Rect2((i % 4) * 128, (i / 4) * 128, 128, 128)
+			at.region = Rect2((i % 5) * 128, (i / 5) * 128, 128, 128)
 			tex = at
 		if tex == null:
-			tex = _fallback_cell_texture(COLORS[i])
+			tex = _fallback_cell_texture(COLORS[i % COLORS.size()])
 		_gem_textures.append(tex)
 
 
@@ -636,6 +640,22 @@ func _try_swap(a: Vector2i, b: Vector2i) -> void:
 	if game_over:
 		return
 	_swap_data(a, b)
+	var tb: int = board[b.y][b.x]
+	# 特殊道具触发：交换后落到 b 位置的是炸弹/彩虹 → 触发效果
+	if tb == BOMB or tb == RAINBOW:
+		steps -= 1
+		_update_labels(0.0)
+		_sfx("swap")
+		await _animate_swap(a, b)
+		await _trigger_special(b, a)
+		await _resolve_loop()
+		if score >= target:
+			_win_level()
+		elif steps <= 0:
+			_lose_level()
+		elif not _has_valid_move():
+			_reshuffle()
+		return
 	var matches := _find_matches()
 	if not matches.is_empty():
 		steps -= 1
@@ -663,6 +683,62 @@ func _try_swap(a: Vector2i, b: Vector2i) -> void:
 		await t.finished
 
 
+# ---------- 特殊道具 ----------
+
+func _trigger_special(pos: Vector2i, ref: Vector2i) -> void:
+	var kind: int = board[pos.y][pos.x]
+	if kind == BOMB:
+		await _bomb_explode(pos)
+	elif kind == RAINBOW:
+		var color: int = board[ref.y][ref.x]
+		if _is_normal(color):
+			await _rainbow_clear(color)
+		else:
+			# 彩虹 + 炸弹：全屏爆炸
+			await _bomb_explode(Vector2i(grid / 2, grid / 2), true)
+
+
+func _bomb_explode(center: Vector2i, full_screen := false) -> void:
+	# 炸弹：3×3 范围消除（full_screen=全屏爆炸）
+	var cells: Array = []
+	if full_screen:
+		for y in grid:
+			for x in grid:
+				if board[y][x] >= 0:
+					cells.append(Vector2i(x, y))
+	else:
+		for dy in range(-1, 2):
+			for dx in range(-1, 2):
+				var p := center + Vector2i(dx, dy)
+				if p.x >= 0 and p.y >= 0 and p.x < grid and p.y < grid and board[p.y][p.x] >= 0:
+					cells.append(p)
+	if cells.is_empty():
+		return
+	score += cells.size() * 10 + 30
+	_update_labels(0.0)
+	_flash_screen()
+	await _animate_clear(cells)
+	_screen_shake(3)
+	_sfx("mega")
+
+
+func _rainbow_clear(color: int) -> void:
+	# 彩虹：全屏消除指定颜色
+	var cells: Array = []
+	for y in grid:
+		for x in grid:
+			if board[y][x] == color:
+				cells.append(Vector2i(x, y))
+	if cells.is_empty():
+		return
+	score += cells.size() * 10 + 50
+	_update_labels(0.0)
+	_flash_screen()
+	await _animate_clear(cells)
+	_screen_shake(2)
+	_sfx("mega")
+
+
 func _swap_data(a: Vector2i, b: Vector2i) -> void:
 	var tmp: int = board[a.y][a.x]
 	board[a.y][a.x] = board[b.y][b.x]
@@ -686,22 +762,26 @@ func _find_matches() -> Array:
 	for y in grid:
 		var run_start := 0
 		for x in range(1, grid + 1):
-			if x < grid and board[y][x] >= 0 and board[y][x] == board[y][run_start]:
+			if x < grid and _is_normal(board[y][x]) and board[y][x] == board[y][run_start]:
 				continue
-			if x - run_start >= 3 and board[y][run_start] >= 0:
+			if x - run_start >= 3 and _is_normal(board[y][run_start]):
 				for k in range(run_start, x):
 					marked[Vector2i(k, y)] = true
 			run_start = x
 	for x in grid:
 		var run_start := 0
 		for y in range(1, grid + 1):
-			if y < grid and board[y][x] >= 0 and board[y][x] == board[run_start][x]:
+			if y < grid and _is_normal(board[y][x]) and board[y][x] == board[run_start][x]:
 				continue
-			if y - run_start >= 3 and board[run_start][x] >= 0:
+			if y - run_start >= 3 and _is_normal(board[run_start][x]):
 				for k in range(run_start, y):
 					marked[Vector2i(x, k)] = true
 			run_start = y
 	return marked.keys()
+
+
+func _is_normal(v: int) -> bool:
+	return v >= 0 and v < COLORS.size()
 
 
 func _resolve_loop() -> void:
@@ -715,8 +795,68 @@ func _resolve_loop() -> void:
 		_update_labels(float(chain))
 		if chain > 1:
 			_sfx("combo")
+		var specials := _detect_specials(matches)
 		await _animate_clear(matches)
+		for pos in specials:
+			_spawn_special(pos, specials[pos])
 		await _apply_gravity()
+
+
+func _detect_specials(matches: Array) -> Dictionary:
+	# 在消除格中检测 4 连/5 连（同色直线）→ 中间格生成炸弹/彩虹
+	# 返回 { Vector2i: int }（位置 → BOMB/RAINBOW）
+	var out := {}
+	var marked := {}
+	for pos in matches:
+		marked[pos] = true
+	for y in grid:
+		var run := 0
+		var run_cells: Array = []
+		var run_color := -1
+		for x in range(grid + 1):
+			var cell := Vector2i(x, y)
+			if x < grid and marked.has(cell) and (run == 0 or board[y][x] == run_color):
+				run += 1
+				run_cells.append(cell)
+				run_color = board[y][x]
+			else:
+				if run >= 4:
+					var mid: Vector2i = run_cells[run / 2]
+					out[mid] = RAINBOW if run >= 5 else BOMB
+				run = 0
+				run_cells.clear()
+				run_color = -1
+	for x in grid:
+		var run := 0
+		var run_cells: Array = []
+		var run_color := -1
+		for y in range(grid + 1):
+			var cell := Vector2i(x, y)
+			if y < grid and marked.has(cell) and (run == 0 or board[y][x] == run_color):
+				run += 1
+				run_cells.append(cell)
+				run_color = board[y][x]
+			else:
+				if run >= 4:
+					var mid: Vector2i = run_cells[run / 2]
+					if not out.has(mid) or run >= 5:
+						out[mid] = RAINBOW if run >= 5 else BOMB
+				run = 0
+				run_cells.clear()
+				run_color = -1
+	return out
+
+
+func _spawn_special(pos: Vector2i, kind: int) -> void:
+	board[pos.y][pos.x] = kind
+	var n := _make_cell(pos.x, pos.y, kind)
+	nodes[pos.y][pos.x] = n
+	n.scale = Vector2(0.1, 0.1)
+	n.modulate.a = 0.0
+	var t := create_tween()
+	t.set_parallel(true)
+	t.tween_property(n, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_property(n, "modulate:a", 1.0, 0.15)
 
 
 func _animate_clear(cells: Array) -> void:
@@ -740,7 +880,7 @@ func _animate_clear(cells: Array) -> void:
 		t.tween_property(node, "modulate:a", 0.0, 0.22)
 		t.tween_property(node, "scale", Vector2(burst, burst), 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
 		tweens.append(t)
-		var col: Color = COLORS[board[c.y][c.x]] if board[c.y][c.x] >= 0 else Color.WHITE
+		var col: Color = COLORS[board[c.y][c.x]] if _is_normal(board[c.y][c.x]) else Color.WHITE
 		_spawn_particles(node.position + node.size / 2.0, col, 12 * level)
 	for t in tweens:
 		await t.finished

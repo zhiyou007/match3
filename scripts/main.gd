@@ -648,6 +648,7 @@ func _try_swap(a: Vector2i, b: Vector2i) -> void:
 		_sfx("swap")
 		await _animate_swap(a, b)
 		await _trigger_special(b, a)
+		await _apply_gravity()
 		await _resolve_loop()
 		if score >= target:
 			_win_level()

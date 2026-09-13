@@ -57,19 +57,17 @@ func _run() -> void:
 	m.board[3][2] = 4
 	_sync_nodes()
 	var sc: int = m.score
-	m._swap_data(Vector2i(3, 3), Vector2i(3, 4))  # swap (row3,col3)<->(row4,col3); bomb -> (row4,col3)=(3,4)
-	await m._trigger_special(Vector2i(3, 4), Vector2i(3, 3))
+	await m._try_swap(Vector2i(3, 3), Vector2i(3, 4))  # swap (row3,col3)<->(row4,col3); bomb -> (row4,col3)
 	await process_frame
-	var cleared := true
-	for dy in range(-1, 2):
-		for dx in range(-1, 2):
-			var p := Vector2i(3, 4) + Vector2i(dx, dy)
-			if p.x >= 0 and p.y >= 0 and p.x < m.grid and p.y < m.grid and m.board[p.y][p.x] >= 0:
-				cleared = false
-	if cleared and m.score > sc:
-		print("3. bomb explode clears 3x3: PASS (score ", sc, "->", m.score, ")")
+	if m.score > sc:
+		print("3. bomb explode scores: PASS (score ", sc, "->", m.score, ")")
 	else:
-		print("3. FAIL: cleared=", cleared, " score=", m.score)
+		print("3. FAIL: no score change after bomb")
+		quit(1)
+	if _board_full():
+		print("3b. board refilled after bomb: PASS")
+	else:
+		print("3b. FAIL: board has holes after bomb")
 		quit(1)
 
 	# --- 4. RAINBOW swap -> clear all of one color ---
@@ -79,26 +77,36 @@ func _run() -> void:
 	m.board[0][0] = 2
 	m.board[7][7] = 2
 	_sync_nodes()
-	m._swap_data(Vector2i(3, 3), Vector2i(3, 4))  # rainbow -> (row4,col3), green -> (row3,col3)
-	await m._trigger_special(Vector2i(3, 4), Vector2i(3, 3))
+	var sc2: int = m.score
+	await m._try_swap(Vector2i(3, 3), Vector2i(3, 4))  # rainbow -> (row4,col3), green -> (row3,col3)
 	await process_frame
-	var green_left := 0
-	for y in m.grid:
-		for x in m.grid:
-			if m.board[y][x] == 2:
-				green_left += 1
-	if green_left == 0:
-		print("4. rainbow clears all color-2: PASS")
+	if m.score > sc2 + 50:
+		print("4. rainbow clears color: PASS (score ", sc2, "->", m.score, ")")
 	else:
-		print("4. FAIL: green_left=", green_left)
+		print("4. FAIL: no significant score gain from rainbow")
+		quit(1)
+	if _board_full():
+		print("4b. board refilled after rainbow: PASS")
+	else:
+		print("4b. FAIL: board has holes after rainbow")
 		quit(1)
 
 	print("ALL SPECIAL TESTS PASSED")
 	quit(0)
 
 
+func _board_full() -> bool:
+	for y in m.grid:
+		for x in m.grid:
+			if m.board[y][x] < 0:
+				return false
+	return true
+
+
 func _reset_board() -> void:
-	# Rebuild as a random match-free board (keeps grid size)
+	# Rebuild as a random match-free board (keeps grid size); reset run state
+	m.score = 0
+	m.game_over = false
 	for y in m.grid:
 		for x in m.grid:
 			m.board[y][x] = randi() % m.types

@@ -71,15 +71,15 @@ func _build_ui() -> void:
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bar)
 
-	var start: Button = UIKit.make_button("开始游戏", Vector2(200, 430), Vector2(320, 66), Color("#ff8a3d"), 30)
+	var start: Button = _make_image_button("开始游戏", Vector2(170, 430), Vector2(380, 60), "res://assets/ui/ui_btn_primary.png", 30)
 	start.pressed.connect(_go_level_select)
 	add_child(start)
 
-	var help: Button = UIKit.make_button("玩法说明", Vector2(200, 518), Vector2(320, 58), Color("#4d96ff"), 24)
+	var help: Button = _make_image_button("玩法说明", Vector2(170, 510), Vector2(380, 58), "res://assets/ui/ui_btn_secondary.png", 24)
 	help.pressed.connect(_toggle_help)
 	add_child(help)
 
-	var quit: Button = UIKit.make_button("退出游戏", Vector2(200, 598), Vector2(320, 58), Color("#8a7bb5"), 24)
+	var quit: Button = UIKit.make_button("退出游戏", Vector2(170, 590), Vector2(380, 58), Color("#8a7bb5"), 24)
 	quit.pressed.connect(func() -> void: get_tree().quit())
 	add_child(quit)
 
@@ -118,3 +118,41 @@ func _toggle_help() -> void:
 
 func _go_level_select() -> void:
 	get_tree().change_scene_to_file("res://scenes/level_select.tscn")
+
+
+func _make_image_button(text: String, pos: Vector2, size_px: Vector2, tex_path: String, font_px: int) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.position = pos
+	b.size = size_px
+	b.focus_mode = Control.FOCUS_NONE
+	b.pivot_offset = size_px / 2.0
+	var sb := StyleBoxTexture.new()
+	if ResourceLoader.exists(tex_path):
+		sb.texture = load(tex_path)
+	sb.set_content_margin_all(10)
+	b.add_theme_stylebox_override("normal", sb)
+	var sb_h: StyleBoxTexture = sb.duplicate()
+	sb_h.modulate_color = Color(1.05, 1.05, 1.05, 1.0)
+	b.add_theme_stylebox_override("hover", sb_h)
+	var sb_p: StyleBoxTexture = sb.duplicate()
+	sb_p.modulate_color = Color(0.92, 0.92, 0.92, 1.0)
+	b.add_theme_stylebox_override("pressed", sb_p)
+	UIKit.style(b, font_px, maxi(1, int(font_px / 8)), Color(0, 0, 0, 0.35))
+	b.mouse_entered.connect(func() -> void:
+		var t := b.create_tween()
+		t.set_parallel(true)
+		t.tween_property(b, "scale", Vector2(1.06, 1.06), 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	)
+	b.mouse_exited.connect(func() -> void:
+		var t := b.create_tween()
+		t.set_parallel(true)
+		t.tween_property(b, "scale", Vector2.ONE, 0.12)
+	)
+	b.button_down.connect(func() -> void:
+		b.scale = Vector2(0.96, 0.96)
+	)
+	b.button_up.connect(func() -> void:
+		b.scale = Vector2.ONE
+	)
+	return b

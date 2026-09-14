@@ -45,7 +45,7 @@ var target_label: Label
 var score_label: Label
 var steps_label: Label
 var overlay: ColorRect
-var result_panel: Panel
+var result_panel: TextureRect
 var result_title: Label
 var result_detail: Label
 var result_stars: Label
@@ -55,8 +55,15 @@ var pause_overlay: Control
 
 # 进度条与棋盘底纹
 var _progress_fill: Panel
-var _board_panel: Panel
+var _board_panel: TextureRect
 var _cell_bgs: Array = []
+
+const _TEX_HEADER := "res://assets/ui/ui_header.png"
+const _TEX_RESULT := "res://assets/ui/ui_result.png"
+const _TEX_PAUSE := "res://assets/ui/ui_pause.png"
+const _TEX_BTN_PRIMARY := "res://assets/ui/ui_btn_primary.png"
+const _TEX_BTN_SECONDARY := "res://assets/ui/ui_btn_secondary.png"
+const _TEX_BOARD := "res://assets/ui/ui_board.png"
 
 # 道具
 var hints_left := 3
@@ -139,14 +146,60 @@ func _make_button(text: String, pos: Vector2, size_px: Vector2, color: Color, fo
 	return UIKit.make_button(text, pos, size_px, color, font_px)
 
 
+func _make_image_button(text: String, pos: Vector2, size_px: Vector2, tex_path: String, font_px: int) -> Button:
+	# 图片按钮：用 UI 素材图做背景（StyleBoxTexture），保留 Button 文字与信号
+	var b := Button.new()
+	b.text = text
+	b.position = pos
+	b.size = size_px
+	b.focus_mode = Control.FOCUS_NONE
+	b.pivot_offset = size_px / 2.0
+	var sb := StyleBoxTexture.new()
+	if ResourceLoader.exists(tex_path):
+		sb.texture = load(tex_path)
+	sb.set_content_margin_all(10)
+	b.add_theme_stylebox_override("normal", sb)
+	var sb_h: StyleBoxTexture = sb.duplicate()
+	sb_h.modulate_color = Color(1.05, 1.05, 1.05, 1.0)
+	b.add_theme_stylebox_override("hover", sb_h)
+	var sb_p: StyleBoxTexture = sb.duplicate()
+	sb_p.modulate_color = Color(0.92, 0.92, 0.92, 1.0)
+	b.add_theme_stylebox_override("pressed", sb_p)
+	_style(b, font_px, maxi(1, int(font_px / 8)), Color(0, 0, 0, 0.35))
+	b.mouse_entered.connect(func() -> void:
+		var t := b.create_tween()
+		t.set_parallel(true)
+		t.tween_property(b, "scale", Vector2(1.06, 1.06), 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	)
+	b.mouse_exited.connect(func() -> void:
+		var t := b.create_tween()
+		t.set_parallel(true)
+		t.tween_property(b, "scale", Vector2.ONE, 0.12)
+	)
+	b.button_down.connect(func() -> void:
+		b.scale = Vector2(0.96, 0.96)
+	)
+	b.button_up.connect(func() -> void:
+		b.scale = Vector2.ONE
+	)
+	return b
+
+
 func _build_ui() -> void:
 	# 背景：星空渐变 + 光斑
 	UIKit.bg_gradient(self, Color("#3d1f7a"), Color("#16245e"))
 	UIKit.sparkle(self, 22, VIEW_W, VIEW_H)
 
-	# 顶部信息面板
-	var top_panel := UIKit.make_panel(self, Vector2(132, 12), Vector2(576, 116), Color(0.13, 0.10, 0.30, 0.62), 20)
-	top_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# 顶部信息面板（游戏UI 素材图）
+	var header := TextureRect.new()
+	if ResourceLoader.exists(_TEX_HEADER):
+		header.texture = load(_TEX_HEADER)
+	header.position = Vector2(132, 12)
+	header.size = Vector2(576, 115)
+	header.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	header.stretch_mode = TextureRect.STRETCH_SCALE
+	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(header)
 
 	var back := _make_button("← 菜单", Vector2(16, 16), Vector2(104, 46), Color("#8a7bb5"), 18)
 	back.pressed.connect(_go_menu)
@@ -251,7 +304,7 @@ func _build_ui() -> void:
 
 
 func _build_board_panel() -> void:
-	# 棋盘底板 + 每格底纹（在宝石下方）
+	# 棋盘底板（金色外框素材图）+ 每格底纹（在宝石下方）
 	if _board_panel != null and is_instance_valid(_board_panel):
 		_board_panel.queue_free()
 	for row in _cell_bgs:
@@ -260,8 +313,15 @@ func _build_board_panel() -> void:
 				(c as Control).queue_free()
 	_cell_bgs.clear()
 	var origin := _grid_origin()
-	_board_panel = UIKit.make_panel(self, origin - Vector2(14, 14), Vector2(grid * cell + 28, grid * cell + 28), Color(0.10, 0.08, 0.24, 0.6), 20)
+	_board_panel = TextureRect.new()
+	if ResourceLoader.exists(_TEX_BOARD):
+		_board_panel.texture = load(_TEX_BOARD)
+	_board_panel.position = origin - Vector2(10, 10)
+	_board_panel.size = Vector2(660, 660)
+	_board_panel.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_board_panel.stretch_mode = TextureRect.STRETCH_SCALE
 	_board_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_board_panel)
 	for y in grid:
 		var brow: Array = []
 		for x in grid:
@@ -270,7 +330,7 @@ func _build_board_panel() -> void:
 			bgc.size = Vector2(cell - 6, cell - 6)
 			bgc.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			var bsb := StyleBoxFlat.new()
-			bsb.bg_color = Color(1, 1, 1, 0.07)
+			bsb.bg_color = Color(1, 1, 1, 0.08)
 			bsb.set_corner_radius_all(10)
 			bgc.add_theme_stylebox_override("panel", bsb)
 			add_child(bgc)
@@ -286,14 +346,21 @@ func _build_result_panel() -> void:
 	overlay.visible = false
 	add_child(overlay)
 
-	result_panel = UIKit.make_panel(self, Vector2(110, 180), Vector2(500, 470), Color(0.22, 0.14, 0.42, 0.96), 30)
+	result_panel = TextureRect.new()
+	if ResourceLoader.exists(_TEX_RESULT):
+		result_panel.texture = load(_TEX_RESULT)
+	result_panel.position = Vector2(110, 150)
+	result_panel.size = Vector2(500, 560)
+	result_panel.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	result_panel.stretch_mode = TextureRect.STRETCH_SCALE
 	result_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	result_panel.z_index = 10
 	result_panel.visible = false
+	add_child(result_panel)
 
 	result_title = Label.new()
 	result_title.text = ""
-	result_title.position = Vector2(110, 210)
+	result_title.position = Vector2(110, 180)
 	result_title.size = Vector2(500, 76)
 	result_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	result_title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -303,7 +370,7 @@ func _build_result_panel() -> void:
 
 	result_stars = Label.new()
 	result_stars.text = ""
-	result_stars.position = Vector2(110, 292)
+	result_stars.position = Vector2(110, 268)
 	result_stars.size = Vector2(500, 64)
 	result_stars.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	result_stars.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -313,7 +380,7 @@ func _build_result_panel() -> void:
 
 	result_detail = Label.new()
 	result_detail.text = ""
-	result_detail.position = Vector2(110, 366)
+	result_detail.position = Vector2(110, 344)
 	result_detail.size = Vector2(500, 60)
 	result_detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	result_detail.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -322,13 +389,13 @@ func _build_result_panel() -> void:
 	_style(result_detail, 21)
 	add_child(result_detail)
 
-	btn_primary = _make_button("", Vector2(170, 462), Vector2(380, 60), Color("#ff8a3d"), 26)
+	btn_primary = _make_image_button("", Vector2(170, 428), Vector2(380, 60), _TEX_BTN_PRIMARY, 26)
 	btn_primary.visible = false
 	btn_primary.z_index = 10
 	btn_primary.pressed.connect(_on_primary)
 	add_child(btn_primary)
 
-	btn_secondary = _make_button("", Vector2(170, 538), Vector2(380, 58), Color("#4d96ff"), 22)
+	btn_secondary = _make_image_button("", Vector2(170, 502), Vector2(380, 58), _TEX_BTN_SECONDARY, 22)
 	btn_secondary.visible = false
 	btn_secondary.z_index = 10
 	btn_secondary.pressed.connect(_on_secondary)
@@ -348,12 +415,19 @@ func _build_pause_panel() -> void:
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	pause_overlay.add_child(dim)
 
-	var panel := UIKit.make_panel(pause_overlay, Vector2(150, 210), Vector2(420, 400), Color(0.22, 0.14, 0.42, 0.96), 30)
+	var panel := TextureRect.new()
+	if ResourceLoader.exists(_TEX_PAUSE):
+		panel.texture = load(_TEX_PAUSE)
+	panel.position = Vector2(150, 170)
+	panel.size = Vector2(420, 470)
+	panel.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	panel.stretch_mode = TextureRect.STRETCH_SCALE
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	pause_overlay.add_child(panel)
 
 	var title := Label.new()
 	title.text = "暂停"
-	title.position = Vector2(150, 230)
+	title.position = Vector2(150, 200)
 	title.size = Vector2(420, 64)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -361,15 +435,15 @@ func _build_pause_panel() -> void:
 	title.modulate = Color("#ffffff")
 	pause_overlay.add_child(title)
 
-	var resume := _make_button("继续", Vector2(200, 320), Vector2(320, 58), Color("#6bcb77"), 24)
+	var resume := _make_image_button("继续", Vector2(200, 296), Vector2(320, 52), _TEX_BTN_PRIMARY, 24)
 	resume.pressed.connect(_toggle_pause)
 	pause_overlay.add_child(resume)
 
-	var restart := _make_button("重新开始", Vector2(200, 396), Vector2(320, 58), Color("#ff8a3d"), 24)
+	var restart := _make_image_button("重新开始", Vector2(200, 358), Vector2(320, 52), _TEX_BTN_PRIMARY, 24)
 	restart.pressed.connect(_on_restart)
 	pause_overlay.add_child(restart)
 
-	var menu := _make_button("返回菜单", Vector2(200, 472), Vector2(320, 58), Color("#a06cd5"), 24)
+	var menu := _make_image_button("返回菜单", Vector2(200, 420), Vector2(320, 52), _TEX_BTN_SECONDARY, 24)
 	menu.pressed.connect(_go_menu)
 	pause_overlay.add_child(menu)
 

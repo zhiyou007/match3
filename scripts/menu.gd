@@ -11,12 +11,24 @@ const COLORS: Array[Color] = [
 	Color("#f15bb5")
 ]
 
+var _gems: Array = []
+var _gem_bases: Array = []
+var _float_t := 0.0
+
 
 func _ready() -> void:
 	size = Vector2(VIEW_W, VIEW_H)
 	_build_ui()
 	_build_help()
-	_gem_float()
+
+
+func _process(delta: float) -> void:
+	# 宝石正弦浮动（不依赖 tween，随场景释放自然停止）
+	_float_t += delta
+	for i in _gems.size():
+		var g: TextureRect = _gems[i]
+		var base: float = _gem_bases[i]
+		g.position.y = base + sin(_float_t * 1.6 + i * 0.9) * 12.0
 
 
 func _atlas_region(i: int) -> AtlasTexture:
@@ -38,11 +50,13 @@ func _build_ui() -> void:
 	UIKit.sparkle(self, 26, VIEW_W, VIEW_H)
 
 	# 底部漂浮宝石
-	var gems: Array[TextureRect] = []
+	_gems = []
+	_gem_bases = []
 	for i in 8:
 		var t := UIKit.make_gem(self, _atlas_region(i), Vector2(60 + i * 80, 700 + (i % 3) * 26), 40.0)
 		t.modulate = Color(1, 1, 1, 0.85)
-		gems.append(t)
+		_gems.append(t)
+		_gem_bases.append(t.position.y)
 
 	# 标题（描边）
 	UIKit.make_title(self, "消消乐", Vector2(0, 190), Vector2(VIEW_W, 110), 84, Color("#ffffff"), Color("#2a1058"))
@@ -68,14 +82,6 @@ func _build_ui() -> void:
 	var quit: Button = UIKit.make_button("退出游戏", Vector2(200, 598), Vector2(320, 58), Color("#8a7bb5"), 24)
 	quit.pressed.connect(func() -> void: get_tree().quit())
 	add_child(quit)
-
-	# 宝石漂浮动画
-	for i in gems.size():
-		var g: TextureRect = gems[i]
-		var base_y: float = g.position.y
-		var t := create_tween().set_loops()
-		t.tween_property(g, "position:y", base_y - 12.0, 1.8 + i * 0.15).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-		t.tween_property(g, "position:y", base_y, 1.8 + i * 0.15).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
 
 func _build_help() -> void:
@@ -112,7 +118,3 @@ func _toggle_help() -> void:
 
 func _go_level_select() -> void:
 	get_tree().change_scene_to_file("res://scenes/level_select.tscn")
-
-
-func _gem_float() -> void:
-	pass

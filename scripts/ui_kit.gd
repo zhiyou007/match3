@@ -35,8 +35,7 @@ static func bg_gradient(parent: Control, top: Color, bottom: Color) -> TextureRe
 
 
 static func sparkle(parent: Control, count: int, w: float, h: float) -> void:
-	# 半透明星光光斑
-	var tree := parent.get_tree()
+	# 半透明星光光斑（单次呼吸动画，绑定父节点，随场景释放自动清理）
 	for i in count:
 		var dot := ColorRect.new()
 		dot.size = Vector2(randf_range(2.0, 5.0), randf_range(2.0, 5.0))
@@ -44,10 +43,10 @@ static func sparkle(parent: Control, count: int, w: float, h: float) -> void:
 		dot.color = Color(1, 1, 1, randf_range(0.05, 0.3))
 		dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		parent.add_child(dot)
-		if tree != null:
-			var t := tree.create_tween().set_loops()
-			t.tween_property(dot, "modulate:a", 0.1, randf_range(1.2, 2.4)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-			t.tween_property(dot, "modulate:a", 1.0, randf_range(1.2, 2.4)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		var a0: float = dot.modulate.a
+		var t := parent.create_tween()
+		t.tween_property(dot, "modulate:a", 0.03, randf_range(0.8, 1.6)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		t.tween_property(dot, "modulate:a", a0, randf_range(0.8, 1.6)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
 
 static func make_title(parent: Control, text: String, pos: Vector2, size_px: Vector2, px: int, color := Color.WHITE, outline := Color("#3a1d6e")) -> Label:

@@ -4,6 +4,8 @@ extends Control
 # 点击方块选中，点击相邻方块交换；三连及以上消除、下落、连锁计分。
 # 关卡参数来自 GameState（棋盘大小/色数/目标分/步数），达标即过关。
 
+const UIKit = preload("res://scripts/ui_kit.gd")
+
 const COLORS: Array[Color] = [
 	Color("#ff6b6b"), Color("#ffd93d"), Color("#6bcb77"),
 	Color("#4d96ff"), Color("#9b5de5"), Color("#ff9f1c"), Color("#00bbf9"),
@@ -43,13 +45,18 @@ var target_label: Label
 var score_label: Label
 var steps_label: Label
 var overlay: ColorRect
-var result_panel: ColorRect
+var result_panel: Panel
 var result_title: Label
 var result_detail: Label
 var result_stars: Label
 var btn_primary: Button
 var btn_secondary: Button
 var pause_overlay: Control
+
+# 进度条与棋盘底纹
+var _progress_fill: Panel
+var _board_panel: Panel
+var _cell_bgs: Array = []
 
 # 道具
 var hints_left := 3
@@ -120,105 +127,121 @@ func _grid_origin() -> Vector2:
 
 # ---------- UI ----------
 
-func _style(ctl: Control, size_px: int) -> void:
-	var f := SystemFont.new()
-	f.font_names = PackedStringArray(["Microsoft YaHei", "SimHei", "Noto Sans CJK SC"])
-	ctl.add_theme_font_override("font", f)
+func _style(ctl: Control, size_px: int, outline_px := 0, outline_color := Color(0, 0, 0, 0)) -> void:
+	ctl.add_theme_font_override("font", UIKit.font())
 	ctl.add_theme_font_size_override("font_size", size_px)
+	if outline_px > 0:
+		ctl.add_theme_color_override("font_outline_color", outline_color)
+		ctl.add_theme_constant_override("outline_size", outline_px)
 
 
 func _make_button(text: String, pos: Vector2, size_px: Vector2, color: Color, font_px: int) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.position = pos
-	b.size = size_px
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = color
-	sb.set_corner_radius_all(14)
-	sb.set_content_margin_all(8)
-	sb.shadow_color = Color(0, 0, 0, 0.25)
-	sb.shadow_size = 3
-	b.add_theme_stylebox_override("normal", sb)
-	var sb_hover: StyleBoxFlat = sb.duplicate()
-	sb_hover.bg_color = color.lightened(0.12)
-	b.add_theme_stylebox_override("hover", sb_hover)
-	var sb_pressed: StyleBoxFlat = sb.duplicate()
-	sb_pressed.bg_color = color.darkened(0.18)
-	b.add_theme_stylebox_override("pressed", sb_pressed)
-	_style(b, font_px)
-	return b
+	return UIKit.make_button(text, pos, size_px, color, font_px)
 
 
 func _build_ui() -> void:
-	# 背景
-	var bg := ColorRect.new()
-	bg.color = Color("#f7f4ef")
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(bg)
+	# 背景：星空渐变 + 光斑
+	UIKit.bg_gradient(self, Color("#3d1f7a"), Color("#16245e"))
+	UIKit.sparkle(self, 22, VIEW_W, VIEW_H)
 
-	# 顶部栏：返回 / 关卡 / 目标 / 分数 / 步数
-	var back := _make_button("← 菜单", Vector2(16, 16), Vector2(104, 46), Color("#4d96ff"), 20)
+	# 顶部信息面板
+	var top_panel := UIKit.make_panel(self, Vector2(132, 12), Vector2(576, 116), Color(0.13, 0.10, 0.30, 0.62), 20)
+	top_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var back := _make_button("← 菜单", Vector2(16, 16), Vector2(104, 46), Color("#8a7bb5"), 18)
 	back.pressed.connect(_go_menu)
 	add_child(back)
 
+	# 关卡徽章（左侧胶囊）
 	level_label = Label.new()
-	level_label.position = Vector2(140, 14)
-	level_label.size = Vector2(220, 40)
-	level_label.modulate = Color("#2b2d42")
-	_style(level_label, 28)
+	level_label.position = Vector2(148, 20)
+	level_label.size = Vector2(120, 38)
+	level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	level_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	level_label.modulate = Color("#ffffff")
+	var lpill := StyleBoxFlat.new()
+	lpill.bg_color = Color("#a06cd5")
+	lpill.set_corner_radius_all(19)
+	lpill.border_width_left = 2
+	lpill.border_width_top = 2
+	lpill.border_width_right = 2
+	lpill.border_width_bottom = 2
+	lpill.border_color = Color(1, 1, 1, 0.5)
+	lpill.shadow_color = Color(0, 0, 0, 0.3)
+	lpill.shadow_size = 4
+	lpill.shadow_offset = Vector2(0, 2)
+	level_label.add_theme_stylebox_override("normal", lpill)
+	_style(level_label, 22, 2, Color("#2a1058"))
 	add_child(level_label)
 
+	# 目标胶囊
 	target_label = Label.new()
-	target_label.position = Vector2(140, 54)
-	target_label.size = Vector2(260, 30)
-	target_label.modulate = Color("#7a7f8a")
-	_style(target_label, 18)
+	target_label.text = "目标：%d 分" % target
+	target_label.position = Vector2(148, 68)
+	target_label.size = Vector2(200, 32)
+	target_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	target_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	target_label.modulate = Color(1, 1, 1, 0.85)
+	_style(target_label, 16)
 	add_child(target_label)
 
+	# 分数（右侧金色大字）
 	score_label = Label.new()
 	score_label.position = Vector2(360, 14)
-	score_label.size = Vector2(344, 40)
+	score_label.size = Vector2(336, 44)
 	score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	score_label.modulate = Color("#2b2d42")
-	_style(score_label, 28)
+	score_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	score_label.modulate = Color("#ffd23f")
+	_style(score_label, 28, 2, Color("#5a3a00"))
 	add_child(score_label)
 
+	# 步数（右侧胶囊）
 	steps_label = Label.new()
-	steps_label.position = Vector2(400, 54)
-	steps_label.size = Vector2(304, 30)
+	steps_label.position = Vector2(420, 60)
+	steps_label.size = Vector2(276, 36)
 	steps_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	steps_label.modulate = Color("#7a7f8a")
-	_style(steps_label, 18)
+	steps_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	steps_label.modulate = Color("#7fd8ff")
+	_style(steps_label, 20, 1, Color("#0a2a4a"))
 	add_child(steps_label)
 
-	# 进度条（目标达成度）
-	var bar_bg := ColorRect.new()
-	bar_bg.position = Vector2(140, 94)
-	bar_bg.size = Vector2(564, 12)
-	bar_bg.color = Color(0, 0, 0, 0.10)
-	bar_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(bar_bg)
+	# 进度条：轨道 + 金色填充
+	var track := UIKit.make_panel(self, Vector2(148, 102), Vector2(544, 14), Color(0, 0, 0, 0.35), 7)
+	track.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_progress_fill = Panel.new()
+	_progress_fill.position = Vector2(152, 106)
+	_progress_fill.size = Vector2(0, 6)
+	_progress_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var psb := StyleBoxFlat.new()
+	psb.bg_color = Color("#ffd23f")
+	psb.set_corner_radius_all(3)
+	psb.border_width_left = 1
+	psb.border_width_top = 1
+	psb.border_width_right = 1
+	psb.border_width_bottom = 1
+	psb.border_color = Color(1, 1, 0.8, 0.9)
+	_progress_fill.add_theme_stylebox_override("panel", psb)
+	add_child(_progress_fill)
 
-	# 道具栏（棋盘下方）
-	hint_btn = _make_button("提示 ×3", Vector2(150, 676), Vector2(120, 44), Color("#4d96ff"), 18)
+	# 道具栏
+	hint_btn = _make_button("提示 ×3", Vector2(150, 686), Vector2(120, 50), Color("#4d96ff"), 19)
 	hint_btn.pressed.connect(_use_hint)
 	add_child(hint_btn)
 
-	shuffle_btn = _make_button("重排 ×2", Vector2(300, 676), Vector2(120, 44), Color("#9b5de5"), 18)
+	shuffle_btn = _make_button("重排 ×2", Vector2(300, 686), Vector2(120, 50), Color("#a06cd5"), 19)
 	shuffle_btn.pressed.connect(_use_shuffle)
 	add_child(shuffle_btn)
 
-	steps_btn = _make_button("+步 ×1", Vector2(450, 676), Vector2(120, 44), Color("#6bcb77"), 18)
+	steps_btn = _make_button("+步 ×1", Vector2(450, 686), Vector2(120, 50), Color("#6bcb77"), 19)
 	steps_btn.pressed.connect(_use_add_steps)
 	add_child(steps_btn)
 
 	var hint := Label.new()
-	hint.text = "点击相邻方块交换，凑满目标分数即可过关"
+	hint.text = "拖动宝石滑向相邻方向交换 · 4连炸弹 · 5连彩虹"
 	hint.position = Vector2(16, 812)
 	hint.size = Vector2(688, 24)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.modulate = Color(0.42, 0.44, 0.52)
+	hint.modulate = Color(1, 1, 1, 0.5)
 	_style(hint, 15)
 	add_child(hint)
 
@@ -227,58 +250,85 @@ func _build_ui() -> void:
 	_update_labels(0.0)
 
 
+func _build_board_panel() -> void:
+	# 棋盘底板 + 每格底纹（在宝石下方）
+	if _board_panel != null and is_instance_valid(_board_panel):
+		_board_panel.queue_free()
+	for row in _cell_bgs:
+		for c in row:
+			if c != null:
+				(c as Control).queue_free()
+	_cell_bgs.clear()
+	var origin := _grid_origin()
+	_board_panel = UIKit.make_panel(self, origin - Vector2(14, 14), Vector2(grid * cell + 28, grid * cell + 28), Color(0.10, 0.08, 0.24, 0.6), 20)
+	_board_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for y in grid:
+		var brow: Array = []
+		for x in grid:
+			var bgc := Panel.new()
+			bgc.position = origin + Vector2(x * cell, y * cell) + Vector2(3, 3)
+			bgc.size = Vector2(cell - 6, cell - 6)
+			bgc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			var bsb := StyleBoxFlat.new()
+			bsb.bg_color = Color(1, 1, 1, 0.07)
+			bsb.set_corner_radius_all(10)
+			bgc.add_theme_stylebox_override("panel", bsb)
+			add_child(bgc)
+			brow.append(bgc)
+		_cell_bgs.append(brow)
+
+
 func _build_result_panel() -> void:
 	overlay = ColorRect.new()
-	overlay.color = Color(0, 0, 0, 0.62)
+	overlay.color = Color(0.05, 0.02, 0.15, 0.72)
 	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	overlay.z_index = 10
 	overlay.visible = false
 	add_child(overlay)
 
-	result_panel = ColorRect.new()
-	result_panel.position = Vector2(110, 210)
-	result_panel.size = Vector2(500, 420)
-	result_panel.color = Color("#ffffff")
+	result_panel = UIKit.make_panel(self, Vector2(110, 180), Vector2(500, 470), Color(0.22, 0.14, 0.42, 0.96), 30)
 	result_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	result_panel.z_index = 10
 	result_panel.visible = false
-	add_child(result_panel)
 
 	result_title = Label.new()
 	result_title.text = ""
-	result_title.position = Vector2(110, 240)
-	result_title.size = Vector2(500, 70)
+	result_title.position = Vector2(110, 210)
+	result_title.size = Vector2(500, 76)
 	result_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	result_title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	result_title.z_index = 10
-	_style(result_title, 42)
+	_style(result_title, 46, 5, Color("#3a1050"))
 	add_child(result_title)
 
 	result_stars = Label.new()
 	result_stars.text = ""
-	result_stars.position = Vector2(110, 315)
-	result_stars.size = Vector2(500, 60)
+	result_stars.position = Vector2(110, 292)
+	result_stars.size = Vector2(500, 64)
 	result_stars.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	result_stars.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	result_stars.z_index = 10
-	_style(result_stars, 36)
+	_style(result_stars, 40, 4, Color("#5a3a00"))
 	add_child(result_stars)
 
 	result_detail = Label.new()
 	result_detail.text = ""
-	result_detail.position = Vector2(110, 385)
+	result_detail.position = Vector2(110, 366)
 	result_detail.size = Vector2(500, 60)
 	result_detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	result_detail.modulate = Color("#5a5f6a")
+	result_detail.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	result_detail.modulate = Color(1, 1, 1, 0.85)
 	result_detail.z_index = 10
-	_style(result_detail, 20)
+	_style(result_detail, 21)
 	add_child(result_detail)
 
-	btn_primary = _make_button("", Vector2(170, 470), Vector2(380, 58), Color("#6bcb77"), 24)
+	btn_primary = _make_button("", Vector2(170, 462), Vector2(380, 60), Color("#ff8a3d"), 26)
 	btn_primary.visible = false
 	btn_primary.z_index = 10
 	btn_primary.pressed.connect(_on_primary)
 	add_child(btn_primary)
 
-	btn_secondary = _make_button("", Vector2(170, 540), Vector2(380, 58), Color("#ff9f1c"), 22)
+	btn_secondary = _make_button("", Vector2(170, 538), Vector2(380, 58), Color("#4d96ff"), 22)
 	btn_secondary.visible = false
 	btn_secondary.z_index = 10
 	btn_secondary.pressed.connect(_on_secondary)
@@ -294,34 +344,32 @@ func _build_pause_panel() -> void:
 	add_child(pause_overlay)
 
 	var dim := ColorRect.new()
-	dim.color = Color(0, 0, 0, 0.55)
+	dim.color = Color(0.05, 0.02, 0.15, 0.66)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	pause_overlay.add_child(dim)
 
-	var panel := ColorRect.new()
-	panel.position = Vector2(160, 240)
-	panel.size = Vector2(400, 360)
-	panel.color = Color("#ffffff")
-	pause_overlay.add_child(panel)
+	var panel := UIKit.make_panel(pause_overlay, Vector2(150, 210), Vector2(420, 400), Color(0.22, 0.14, 0.42, 0.96), 30)
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 
 	var title := Label.new()
 	title.text = "暂停"
-	title.position = Vector2(160, 260)
-	title.size = Vector2(400, 60)
+	title.position = Vector2(150, 230)
+	title.size = Vector2(420, 64)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_style(title, 36)
-	title.modulate = Color("#2b2d42")
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_style(title, 40, 4, Color("#3a1050"))
+	title.modulate = Color("#ffffff")
 	pause_overlay.add_child(title)
 
-	var resume := _make_button("继续", Vector2(200, 350), Vector2(320, 58), Color("#6bcb77"), 22)
+	var resume := _make_button("继续", Vector2(200, 320), Vector2(320, 58), Color("#6bcb77"), 24)
 	resume.pressed.connect(_toggle_pause)
 	pause_overlay.add_child(resume)
 
-	var restart := _make_button("重新开始", Vector2(200, 424), Vector2(320, 58), Color("#ff9f1c"), 22)
+	var restart := _make_button("重新开始", Vector2(200, 396), Vector2(320, 58), Color("#ff8a3d"), 24)
 	restart.pressed.connect(_on_restart)
 	pause_overlay.add_child(restart)
 
-	var menu := _make_button("返回菜单", Vector2(200, 498), Vector2(320, 58), Color("#9b5de5"), 22)
+	var menu := _make_button("返回菜单", Vector2(200, 472), Vector2(320, 58), Color("#a06cd5"), 24)
 	menu.pressed.connect(_go_menu)
 	pause_overlay.add_child(menu)
 
@@ -347,6 +395,7 @@ func _setup_level() -> void:
 	steps = max_steps
 	level_label.text = "第 %d 关" % level_no
 	target_label.text = "目标：%d 分" % target
+	_build_board_panel()
 
 
 func _start_game() -> void:
@@ -372,6 +421,7 @@ func _start_game() -> void:
 	result_panel.visible = false
 	result_title.visible = false
 	result_stars.visible = false
+	result_stars.scale = Vector2.ONE
 	result_detail.visible = false
 	btn_primary.visible = false
 	btn_secondary.visible = false
@@ -1069,6 +1119,10 @@ func _win_level() -> void:
 	result_stars.text = "★".repeat(stars) + "☆".repeat(3 - stars)
 	result_stars.modulate = Color("#ffd93d")
 	result_stars.add_theme_font_size_override("font_size", 36)
+	result_stars.scale = Vector2(0.2, 0.2)
+	var st := create_tween()
+	st.tween_property(result_stars, "scale", Vector2(1.25, 1.25), 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	st.tween_property(result_stars, "scale", Vector2.ONE, 0.16)
 	result_detail.visible = true
 	result_detail.text = "得分 %d  /  目标 %d" % [score, target]
 	btn_primary.visible = true
@@ -1153,9 +1207,12 @@ func _toggle_pause() -> void:
 func _update_labels(chain: float) -> void:
 	score_label.text = "分数：%d" % score
 	steps_label.text = "步数：%d" % steps
+	if _progress_fill != null and is_instance_valid(_progress_fill):
+		var ratio := clampf(float(score) / float(target), 0.0, 1.0)
+		_progress_fill.size = Vector2(536.0 * ratio, 6)
 	if chain > 1.0:
-		score_label.modulate = Color("#ff9f1c")
+		score_label.modulate = Color("#ffffff")
 		score_label.scale = Vector2(1.15, 1.15)
 	else:
-		score_label.modulate = Color("#2b2d42")
+		score_label.modulate = Color("#ffd23f")
 		score_label.scale = Vector2.ONE
